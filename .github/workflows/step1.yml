@@ -1,4 +1,4 @@
-name: 纯递归解析 .gitmodules 步骤1
+name: 递归解析所有子模块（终极版）
 on:
   workflow_dispatch
 
@@ -8,39 +8,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 递归解析所有子模块
+      - name: 递归解析 .gitmodules
         run: |
           set -e
 
-          # 递归解析函数
-          parse_gitmodules() {
-            local repo_url="$1"
+          # 递归函数：解析一个仓库的 .gitmodules，并继续解析子模块
+          parse() {
+            local repo="$1"
             echo "============================================="
-            echo "解析仓库：$repo_url"
+            echo "📦 解析仓库：$repo"
 
-            # 拼接 .gitmodules 地址
-            gitmodules_url=$(echo "$repo_url" | sed -E 's/\.git$//; s/$/\/-/; s/$/\/raw\/master\/.gitmodules/')
-            echo "下载：$gitmodules_url"
+            # 拼接 .gitmodules 下载地址
+            gitmodules_url="${repo%.git}/-/raw/master/.gitmodules"
+            echo "📥 下载：$gitmodules_url"
 
             # 下载文件
-            content=$(curl -sSL --connect-timeout 5 --max-time 10 "$gitmodules_url" 2>/dev/null || true)
+            content=$(curl -s -f --connect-timeout 3 --max-time 5 "$gitmodules_url" 2>/dev/null || true)
             if [ -z "$content" ]; then
-              echo "⚠️  无 .gitmodules"
+              echo "✅ 最底层模块，无 .gitmodules"
               return
             fi
 
-            # 保存并解析
-            echo "$content" > .tmp_gm
-            git config -f .tmp_gm --get-regexp '^submodule\..*\.url' | while read -r key sub_url; do
-              name=$(echo "$key" | sed -E 's/^submodule\.(.*)\.url/\1/')
-              path=$(git config -f .tmp_gm "submodule.$name.path")
-              echo "✅ 子模块：$path"
-              echo "   URL：$sub_url"
+            echo "$content" > .tmp_modules
 
-              # 递归：继续解析这个子模块
-              parse_gitmodules "$sub_url"
+            # 循环读取每一个子模块 URL
+            grep -E '^[[:space:]]*url[[:space:]]*=' .tmp_modules | while IFS='=' read -r key val; do
+              sub_url=$(echo "$val" | xargs)
+              echo "🔗 子模块URL：$sub_url"
+              
+              # 递归：进入子模块继续解析
+              parse "$sub_url"
             done
           }
 
           # 从根仓库开始
-          parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop.git"
+          parse "https://gitlab.linphone.org/BC/public/linphone-desktop.git"
