@@ -5,55 +5,102 @@ jobs:
   parse:
     runs-on: ubuntu-latest
     steps:
-      - name: 完整提取子模块（带异常捕获）
+      - name: 执行解析
         run: |
-          # ========== 基础日志 ==========
-          info()  { echo -e "\033[32m[INFO] $1\033[0m"; }
-          error() { echo -e "\033[31m[ERROR] $1\033[0m"; }
-          step()  { echo -e "\n==================================================\n[STEP] $1\n=================================================="; }
+          # ========== 日志函数 ==========
+          log_info() { echo -e "\033[32m[INFO] $1\033[0m"; }
+          log_error() { echo -e "\033[31m[ERROR] $1\033[0m"; }
+          log_step() { echo -e "\n==================================================\n\033[36m[STEP] $1\033[0m\n=================================================="; }
 
-          # ========== 1. 检测URL（带异常捕获） ==========
-          check_url() {
+          # ============================
+          # 1. URL连通检查
+          # ============================
+          check_url_connect() {
             local url="$1"
-            local code
-            code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "$url" 2>/dev/null)
-            [[ $code == 200 ]]
+            local code=$(curl -4 -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 8 "$url")
+            [[ $code =~ ^(200|301|302)$ ]]
           }
 
-          # ========== 2. 下载文件 ==========
-          download() {
+          # ============================
+          # 2. 下载文件
+          # ============================
+          download_file() {
             local url="$1"
-            curl -sL --connect-timeout 15 "$url" 2>/dev/null
+            curl -4 -sL --connect-timeout 10 --max-time 15 "$url"
           }
 
-          # ========== 3. ✅ 修复：正确提取 .gitmodules 中的所有 url ==========
-          extract_modules() {
+          # ============================
+          # 3. 提取URL列表（完整）
+          # ============================
+          extract_url_list() {
             local content="$1"
-            echo "$content" | awk '/^[[:space:]]*url/ {print $3}'
+            echo "$content" | grep -E '^[[:space:]]*url[[:space:]]*=' | while IFS='=' read -r _ v; do
+              echo "$v" | xargs
+            done
           }
 
-          # ========== 主执行逻辑 ==========
-          URL="https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
-          
-          step "开始解析"
-          info "目标：$URL"
+          # ============================
+          # 4. 验证URL前缀
+          # ============================
+          validate_url_prefix() {
+            local url="$1"
+            [[ "$url" =~ ^https?:// ]]
+          }
 
-          # 异常捕获
-          if ! check_url "$URL"; then
-            error "访问失败"
-            exit 1
-          fi
-          info "✅ 连通成功"
+          # ============================
+          # 5. 补全URL
+          # ============================
+          complete_url() {
+            local url="$1"
+            if validate_url_prefix "$url"; then
+              echo "$url"
+            else
+              echo "https://gitlab.linphone.org/BC/public/$url"
+            fi
+          }
 
-          # 下载内容
-          content=$(download "$URL")
-          if [ -z "$content" ]; then
-            error "内容为空"
-            exit 1
-          fi
+          # ============================
+          # 6. 递归解析（完整功能！）
+          # ============================
+          parse_gitmodules() {
+            local gitmodules_url="$1"
+            log_step "开始解析：$gitmodules_url"
 
-          # 提取子模块
-          step "提取到的所有子模块 URL"
-          extract_modules "$content"
+            # 异常捕获
+            if ! check_url_connect "$gitmodules_url"; then
+              log_error "URL 无法访问"
+              return
+            fi
+            log_info "✅ URL 连通正常"
 
-          step "执行完成"
+            local content=$(download_file "$gitmodules_url")
+            if [ -z "$content" ]; then
+              log_error "文件内容为空"
+              return
+            fi
+            log_info "✅ 文件下载成功"
+
+            local url_list=$(extract_url_list "$content")
+            log_info "提取到的子模块URL："
+            echo "$url_list"
+
+            local completed_urls=()
+            for u in $url_list; do
+              local cu=$(complete_url "$u")
+              completed_urls+=("$cu")
+              log_info "✅ 补全后：$cu"
+            done
+
+            # 递归继续解析子模块
+            for cu in "${completed_urls[@]}"; do
+              local next_gm="${cu%.git}/-/raw/master/.gitmodules"
+              parse_gitmodules "$next_gm"
+            done
+
+            log_info "🎉 处理完成：$gitmodules_url"
+          }
+
+          # 启动
+          log_step "🚀 启动主程序"
+          parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
+          log_step "✅ 全部执行完毕"
