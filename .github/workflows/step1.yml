@@ -8,52 +8,96 @@ jobs:
     steps:
       - name: 执行解析
         run: |
-          # ===================== 下载文件方法 =====================
+          # ==========================================
+          # 方法1：检查URL是否连通
+          # ==========================================
+          check_url_connect() {
+            local url="$1"
+            curl -4 --head --silent --connect-timeout 5 --max-time 8 "$url" | head -n 1 | grep -qE "200|301|302"
+          }
+
+          # ==========================================
+          # 方法2：下载文件
+          # ==========================================
           download_file() {
             local url="$1"
-            # 去掉所有屏蔽，显示真实错误！！！
-            curl -4 -L --fail --connect-timeout 10 --max-time 15 "$url"
+            curl -4 -sL --connect-timeout 10 --max-time 15 "$url"
           }
 
-          # ===================== URL校验方法 =====================
-          check_url() {
-            local url="$1"
-            [[ "$url" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*://[a-zA-Z0-9]+\. ]]
-          }
-
-          # ===================== 提取URL列表方法 =====================
-          extract_urls() {
+          # ==========================================
+          # 方法3：纯提取URL列表 → 只返回列表
+          # ==========================================
+          extract_url_list() {
             local content="$1"
-            echo "$content" | grep -E '^[ \t]*url[[:space:]]*=' | while IFS='=' read -r k v; do
+            echo "$content" | grep -E '^[[:space:]]*url[[:space:]]*=' | while IFS='=' read -r k v; do
               echo "$v" | xargs
             done
           }
 
-          # ===================== 递归解析主方法 =====================
+          # ==========================================
+          # 方法4：纯验证URL前缀 → 只做判断
+          # ==========================================
+          validate_url_prefix() {
+            local url="$1"
+            [[ "$url" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*:// ]]
+          }
+
+          # ==========================================
+          # 方法5：补全URL → 只做补全
+          # ==========================================
+          complete_url() {
+            local url="$1"
+            # 前缀不对 → 补全为https://gitlab.linphone.org/BC/public/
+            if ! validate_url_prefix "$url"; then
+              echo "https://gitlab.linphone.org/BC/public/$url"
+            else
+              echo "$url"
+            fi
+          }
+
+          # ==========================================
+          # 方法6：递归主方法（严格按步骤）
+          # ==========================================
           parse_gitmodules() {
             local gitmodules_url="$1"
             echo "============================================="
             echo "解析文件：$gitmodules_url"
 
-            local content
-            content=$(download_file "$gitmodules_url")
-
-            if [ -z "$content" ]; then
-              echo "❌ 下载内容为空"
+            # 1. 检查连通
+            if ! check_url_connect "$gitmodules_url"; then
+              echo "❌ URL不通"
               return
             fi
+            echo "✅ URL连通正常"
 
+            # 2. 下载
+            local content=$(download_file "$gitmodules_url")
+            if [ -z "$content" ]; then
+              echo "❌ 文件为空"
+              return
+            fi
             echo "✅ 文件下载成功"
-            local url_list=$(extract_urls "$content")
 
+            # 3. 提取纯列表
+            local url_list=$(extract_url_list "$content")
+
+            # ======================
+            # 第一步：先全部补全URL
+            # ======================
+            local completed_urls=()
             for sub_url in $url_list; do
-              if check_url "$sub_url"; then
-                echo "🔗 有效子模块仓库：$sub_url"
-                local next_gm="${sub_url%.git}/-/raw/master/.gitmodules"
-                parse_gitmodules "$next_gm"
-              else
-                echo "⚠️ 跳过无效地址：$sub_url"
-              fi
+              local new_url=$(complete_url "$sub_url")
+              completed_urls+=("$new_url")
+              echo "🔗 补全后：$new_url"
+            done
+
+            # ======================
+            # 第二步：全部补全完了 → 再循环递归
+            # ======================
+            echo -e "\n=== 开始递归全部补全后的URL ==="
+            for url in "${completed_urls[@]}"; do
+              local next_gm="${url%.git}/-/raw/master/.gitmodules"
+              parse_gitmodules "$next_gm"
             done
           }
 
