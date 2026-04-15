@@ -61,13 +61,26 @@ jobs:
           echo "::endgroup::"
 
           # ==============================================================================
+          # ====================== 只修改这里：逐个克隆 + 逐个提交 ======================
+          # ==============================================================================
           echo "::group::🚀 步骤4：开始完整同步子模块"
           echo "----------------------------------------"
+          cd ..
+          rsync -av --delete --exclude='.git' tmp/ .
+          rm -rf tmp
           echo "$MODULE_LIST" | while read -r key url; do
             name=$(echo "$key" | sed -E 's/^submodule\.(.*)\.url$/\1/')
             path=$(git config -f .gitmodules "submodule.$name.path")
             echo "::group::同步：$name → $path   命令：git clone $url $path"
             git clone --depth 1 "$url" "$path"
+            
+            # 克隆完立即提交推送
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add "$path"
+            git commit -m "✅ 同步子模块：$name"
+            git push https://github.com/wait2021/linphone-desktop-full-3.git main
+            
             echo "::endgroup::"
           done
           echo "::endgroup::"
@@ -87,19 +100,11 @@ jobs:
           # ==============================================================================
           echo "::group::🔥 步骤6：同步所有代码到你的仓库目录"
           echo "----------------------------------------"
-          cd ..
-          rsync -av --delete --exclude='.git' tmp/ .
-          rm -rf tmp
           echo "✅ 全部代码已同步到你的仓库！"
           echo "::endgroup::"
 
       - name: 提交并推送到 GitHub
         run: |
           echo "::group::🔥 步骤6（完成）：推送代码到你的仓库"
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add -f .
-          git commit -m "✅ 6步验证完整同步" --allow-empty
-          git push --force https://github.com/wait2021/linphone-desktop-full-3.git main
-          echo "✅ 推送完成！"
+          echo "✅ 所有模块已逐个同步完成！"
           echo "::endgroup::"
