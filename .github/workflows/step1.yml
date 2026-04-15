@@ -1,0 +1,26 @@
+name: 【纯验证】步骤1 - 获取所有子模块
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 只验证步骤1
+        run: |
+          set -e
+          
+          # 克隆主项目
+          git clone https://gitlab.linphone.org/BC/public/linphone-desktop.git tmp
+          cd tmp
+          
+          # ==================== 你要的 步骤1 单独验证 ====================
+          echo "::group::📦 步骤1：获取所有子模块信息"
+          echo "----------------------------------------"
+          git submodule init
+          MODULE_LIST=$(git submodule status | awk '{print $2}' | while read m; do echo "submodule.$m.url $(git config -f .gitmodules submodule.$m.url)"; done)
+          echo "✅ 成功读取所有子模块列表"
+          echo "$MODULE_LIST"
+          echo "::endgroup::"
