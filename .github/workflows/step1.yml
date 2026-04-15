@@ -1,6 +1,6 @@
-name: 只验证步骤1
+name: 纯递归解析 .gitmodules 步骤1
 on:
-  workflow_dispatch:
+  workflow_dispatch
 
 jobs:
   test:
@@ -8,16 +8,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 步骤1：获取官方 .gitmodules
+      - name: 递归解析所有子模块
         run: |
           set -e
-          
-          # 直接下载官方线上 .gitmodules 文件
-          curl -sSL "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules" -o .gitmodules.online
-          
-          # 读取所有子模块
-          MODULE_LIST=$(git config -f .gitmodules.online --get-regexp '^submodule\..*\.url$')
-          
-          # 输出结果
-          echo "✅ 成功获取所有子模块"
-          echo "$MODULE_LIST"
+
+          # 递归解析函数
+          parse_gitmodules() {
+            local repo_url="$1"
+            echo "============================================="
+            echo "解析仓库：$repo_url"
+
+            # 拼接 .gitmodules 地址
+            gitmodules_url=$(echo "$repo_url" | sed -E 's/\.git$//; s/$/\/-/; s/$/\/raw\/master\/.gitmodules/')
+            echo "下载：$gitmodules_url"
+
+            # 下载文件
+            content=$(curl -sSL --connect-timeout 5 --max-time 10 "$gitmodules_url" 2>/dev/null || true)
+            if [ -z "$content" ]; then
+              echo "⚠️  无 .gitmodules"
+              return
+            fi
+
+            # 保存并解析
+            echo "$content" > .tmp_gm
+            git config -f .tmp_gm --get-regexp '^submodule\..*\.url' | while read -r key sub_url; do
+              name=$(echo "$key" | sed -E 's/^submodule\.(.*)\.url/\1/')
+              path=$(git config -f .tmp_gm "submodule.$name.path")
+              echo "✅ 子模块：$path"
+              echo "   URL：$sub_url"
+
+              # 递归：继续解析这个子模块
+              parse_gitmodules "$sub_url"
+            done
+          }
+
+          # 从根仓库开始
+          parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop.git"
