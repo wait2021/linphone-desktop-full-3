@@ -1,5 +1,6 @@
-name: 递归解析子模块【最终最终版】
-on: workflow_dispatch
+name: 递归解析.gitmodules
+on:
+  workflow_dispatch
 
 jobs:
   parse:
@@ -7,37 +8,49 @@ jobs:
     steps:
       - name: 开始解析
         run: |
-          #!/bin/bash
-          set -e
+          # ===================== 下载文件方法 =====================
+          download_file() {
+            local url="$1"
+            curl -s -L --connect-timeout 3 --max-time 5 "$url" 2>/dev/null || true
+          }
 
-          parse() {
-            local repo="$1"
-            echo "============================================="
-            echo "解析仓库：$repo"
+          # ===================== URL校验方法 =====================
+          check_url() {
+            local url="$1"
+            [[ "$url" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*://[a-zA-Z0-9]+\. ]]
+          }
 
-            # 拼接 .gitmodules 地址
-            local gm_url="${repo%.git}/-/raw/master/.gitmodules"
-            local content=$(curl -Ssf --connect-timeout 2 --max-time 3 "$gm_url" 2>/dev/null || true)
-
-            if [ -z "$content" ]; then
-              echo "无 .gitmodules"
-              return
-            fi
-
-            # 提取所有子模块 URL
+          # ===================== 提取URL列表方法 =====================
+          extract_urls() {
+            local content="$1"
             echo "$content" | grep -E '^[ \t]*url[ \t]*=' | while IFS='=' read -r k v; do
-              local url=$(echo "$v" | xargs)
-
-              # 协议正则：严格标准格式
-              if [[ ! "$url" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*://[a-zA-Z0-9]+\. ]]; then
-                echo "跳过：$url"
-                continue
-              fi
-
-              echo "有效子模块：$url"
-              parse "$url"
+              echo "$v" | xargs
             done
           }
 
-          # 启动
-          parse "https://gitlab.linphone.org/BC/public/linphone-desktop.git"
+          # ===================== 递归解析主方法 =====================
+          parse_gitmodules() {
+            local gitmodules_url="$1"
+            echo "============================================="
+            echo "解析文件：$gitmodules_url"
+
+            local content=$(download_file "$gitmodules_url")
+            if [ -z "$content" ]; then
+              echo "✅ 无文件"
+              return
+            fi
+
+            local url_list=$(extract_urls "$content")
+            for sub_url in $url_list; do
+              if check_url "$sub_url"; then
+                echo "🔗 有效子模块：$sub_url"
+                local next_file="${sub_url%.git}/-/raw/master/.gitmodules"
+                parse_gitmodules "$next_file"
+              else
+                echo "⚠️ 跳过：$sub_url"
+              fi
+            done
+          }
+
+          # ==================== 启动执行 ====================
+          parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
