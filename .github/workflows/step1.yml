@@ -6,12 +6,13 @@ jobs:
   parse:
     runs-on: ubuntu-latest
     steps:
-      - name: 开始解析
+      - name: 执行解析
         run: |
           # ===================== 下载文件方法 =====================
           download_file() {
             local url="$1"
-            curl -s -L --connect-timeout 3 --max-time 5 "$url" 2>/dev/null || true
+            # 去掉所有屏蔽，显示真实错误！！！
+            curl -4 -L --fail --connect-timeout 10 --max-time 15 "$url"
           }
 
           # ===================== URL校验方法 =====================
@@ -23,7 +24,7 @@ jobs:
           # ===================== 提取URL列表方法 =====================
           extract_urls() {
             local content="$1"
-            echo "$content" | grep -E '^[ \t]*url[ \t]*=' | while IFS='=' read -r k v; do
+            echo "$content" | grep -E '^[ \t]*url[[:space:]]*=' | while IFS='=' read -r k v; do
               echo "$v" | xargs
             done
           }
@@ -34,23 +35,27 @@ jobs:
             echo "============================================="
             echo "解析文件：$gitmodules_url"
 
-            local content=$(download_file "$gitmodules_url")
+            local content
+            content=$(download_file "$gitmodules_url")
+
             if [ -z "$content" ]; then
-              echo "✅ 无文件"
+              echo "❌ 下载内容为空"
               return
             fi
 
+            echo "✅ 文件下载成功"
             local url_list=$(extract_urls "$content")
+
             for sub_url in $url_list; do
               if check_url "$sub_url"; then
-                echo "🔗 有效子模块：$sub_url"
-                local next_file="${sub_url%.git}/-/raw/master/.gitmodules"
-                parse_gitmodules "$next_file"
+                echo "🔗 有效子模块仓库：$sub_url"
+                local next_gm="${sub_url%.git}/-/raw/master/.gitmodules"
+                parse_gitmodules "$next_gm"
               else
-                echo "⚠️ 跳过：$sub_url"
+                echo "⚠️ 跳过无效地址：$sub_url"
               fi
             done
           }
 
-          # ==================== 启动执行 ====================
+          # ==================== 启动 ====================
           parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
