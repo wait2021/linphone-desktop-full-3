@@ -1,6 +1,5 @@
 name: 递归解析.gitmodules
-on:
-  workflow_dispatch
+on: workflow_dispatch
 
 jobs:
   parse:
@@ -9,11 +8,40 @@ jobs:
       - name: 执行解析
         run: |
           # ==========================================
-          # 方法1：检查URL是否连通（修复版，不用HEAD）
+          # 日志输出函数（统一格式）
+          # ==========================================
+          log_info() {
+            echo -e "\033[32m[INFO] $1\033[0m"
+          }
+          log_warn() {
+            echo -e "\033[33m[WARN] $1\033[0m"
+          }
+          log_error() {
+            echo -e "\033[31m[ERROR] $1\033[0m"
+          }
+          log_step() {
+            echo -e "\n=================================================="
+            echo -e "\033[36m[STEP] $1\033[0m"
+            echo "=================================================="
+          }
+
+          # ==========================================
+          # 方法1-检查URL是否连通
           # ==========================================
           check_url_connect() {
             local url="$1"
-            curl -4 -I -s --connect-timeout 5 --max-time 8 "$url" | head -n 1 | grep -qE "200|301|302"
+            log_step "开始检测URL连通性：$url"
+            local code
+            code=$(curl -4 -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 8 "$url")
+            log_info "HTTP 状态码：$code"
+
+            if [[ $code =~ ^(200|301|302)$ ]]; then
+              log_info "✅ URL 连通成功"
+              return 0
+            else
+              log_error "❌ URL 连通失败"
+              return 1
+            fi
           }
 
           # ==========================================
@@ -21,7 +49,16 @@ jobs:
           # ==========================================
           download_file() {
             local url="$1"
-            curl -4 -sL --connect-timeout 10 --max-time 15 "$url"
+            log_step "开始下载文件：$url"
+            local content
+            content=$(curl -4 -sL --connect-timeout 10 --max-time 15 "$url")
+
+            if [ -z "$content" ]; then
+              log_error "❌ 下载内容为空"
+            else
+              log_info "✅ 文件下载完成"
+            fi
+            echo "$content"
           }
 
           # ==========================================
@@ -29,77 +66,91 @@ jobs:
           # ==========================================
           extract_url_list() {
             local content="$1"
+            log_step "开始提取 .gitmodules 中的 URL"
             echo "$content" | grep -E '^[[:space:]]*url[[:space:]]*=' | while IFS='=' read -r k v; do
               echo "$v" | xargs
             done
           }
 
           # ==========================================
-          # 方法4：纯验证URL前缀 → 只做判断
+          # 方法4：纯验证URL前缀
           # ==========================================
           validate_url_prefix() {
             local url="$1"
+            log_step "检查URL前缀：$url"
             [[ "$url" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*:// ]]
           }
 
           # ==========================================
-          # 方法5：补全URL → 只做补全
-          # 前缀不对 → 补全为https://gitlab.linphone.org/BC/public/
+          # 方法5：补全URL
           # ==========================================
           complete_url() {
             local url="$1"
+            log_step "开始补全URL：$url"
+
             if ! validate_url_prefix "$url"; then
-              echo "https://gitlab.linphone.org/BC/public/$url"
+              local new_url="https://gitlab.linphone.org/BC/public/$url"
+              log_info "✅ 补全为：$new_url"
+              echo "$new_url"
             else
+              log_info "✅ 前缀合法，无需补全"
               echo "$url"
             fi
           }
 
           # ==========================================
-          # 方法6：递归主方法（严格按步骤）
+          # 方法6：递归主方法
           # ==========================================
           parse_gitmodules() {
             local gitmodules_url="$1"
-            echo "============================================="
-            echo "解析文件：$gitmodules_url"
+            log_info "🚀 开始递归解析：$gitmodules_url"
 
-            # 1. 检查连通
+            # 1. 连通检查
             if ! check_url_connect "$gitmodules_url"; then
-              echo "❌ URL不通"
+              log_error "跳过该文件：连通失败"
               return
             fi
-            echo "✅ URL连通正常"
 
-            # 2. 下载
-            local content=$(download_file "$gitmodules_url")
+            # 2. 下载内容
+            local content
+            content=$(download_file "$gitmodules_url")
             if [ -z "$content" ]; then
-              echo "❌ 文件为空"
+              log_error "跳过该文件：内容为空"
               return
             fi
-            echo "✅ 文件下载成功"
 
-            # 3. 提取纯列表
-            local url_list=$(extract_url_list "$content")
+            # 3. 提取URL列表
+            log_step "提取到的原始URL列表："
+            local url_list
+            url_list=$(extract_url_list "$content")
+            echo "$url_list"
 
-            # ======================
-            # 第一步：先全部补全URL
-            # ======================
+            # 4. 批量补全
+            log_step "开始批量补全URL"
             local completed_urls=()
             for sub_url in $url_list; do
-              local new_url=$(complete_url "$sub_url")
+              local new_url
+              new_url=$(complete_url "$sub_url")
               completed_urls+=("$new_url")
-              echo "🔗 补全后：$new_url"
             done
 
-            # ======================
-            # 第二步：全部补全完了 → 再循环递归
-            # ======================
-            echo -e "\n=== 开始递归全部补全后的URL ==="
+            log_info "✅ 全部补全完成，总数：${#completed_urls[@]}"
+
+            # 5. 递归
+            log_step "开始递归子模块"
             for url in "${completed_urls[@]}"; do
+              log_info "即将处理：$url"
               local next_gm="${url%.git}/-/raw/master/.gitmodules"
+              log_info "生成的 .gitmodules 地址：$next_gm"
               parse_gitmodules "$next_gm"
             done
+
+            log_info "🎉 处理完成：$gitmodules_url"
           }
 
-          # ==================== 启动 ====================
+          # ==========================================
+          # 启动执行
+          # ==========================================
+          log_step "🚀 启动主程序"
           parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
+          log_step "✅ 全部执行完毕"
