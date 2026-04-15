@@ -9,11 +9,11 @@ jobs:
       - name: 执行解析
         run: |
           # ==========================================
-          # 方法1：检查URL是否连通
+          # 方法1：检查URL是否连通（修复版，不用HEAD）
           # ==========================================
           check_url_connect() {
             local url="$1"
-            curl -4 --head --silent --connect-timeout 5 --max-time 8 "$url" | head -n 1 | grep -qE "200|301|302"
+            curl -4 -I -s --connect-timeout 5 --max-time 8 "$url" | head -n 1 | grep -qE "200|301|302"
           }
 
           # ==========================================
@@ -44,10 +44,10 @@ jobs:
 
           # ==========================================
           # 方法5：补全URL → 只做补全
+          # 前缀不对 → 补全为https://gitlab.linphone.org/BC/public/
           # ==========================================
           complete_url() {
             local url="$1"
-            # 前缀不对 → 补全为https://gitlab.linphone.org/BC/public/
             if ! validate_url_prefix "$url"; then
               echo "https://gitlab.linphone.org/BC/public/$url"
             else
