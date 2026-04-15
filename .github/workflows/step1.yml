@@ -5,68 +5,55 @@ jobs:
   parse:
     runs-on: ubuntu-latest
     steps:
-      - name: 执行解析
+      - name: 完整提取子模块（带异常捕获）
         run: |
-          # ========== 日志函数 ==========
-          log_info()  { echo -e "\033[32m[INFO] $1\033[0m"; }
-          log_error() { echo -e "\033[31m[ERROR] $1\033[0m"; }
-          log_step()  { echo -e "\n==================================================\n\033[36m[STEP] $1\033[0m\n=================================================="; }
+          # ========== 基础日志 ==========
+          info()  { echo -e "\033[32m[INFO] $1\033[0m"; }
+          error() { echo -e "\033[31m[ERROR] $1\033[0m"; }
+          step()  { echo -e "\n==================================================\n[STEP] $1\n=================================================="; }
 
-          # ========== 【带异常捕获】检测URL ==========
-          check_url_connect() {
+          # ========== 1. 检测URL（带异常捕获） ==========
+          check_url() {
             local url="$1"
-            log_info "正在检测网络连通性：$url"
-            
-            # 捕获 curl 所有异常、错误、输出
             local code
-            code=$(curl --silent --show-error --connect-timeout 10 --max-time 15 \
-              -o /dev/null -w "%{http_code}" "$url" 2>&1)
-            
-            # 输出真实错误
-            if [[ $? -ne 0 ]]; then
-              log_error "网络访问失败 → 真实原因：$code"
-              return 1
-            fi
-            
-            log_info "HTTP状态码：$code"
-            [[ $code =~ ^(200|301|302)$ ]]
+            code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "$url" 2>/dev/null)
+            [[ $code == 200 ]]
           }
 
-          # ========== 下载函数（异常捕获） ==========
-          download_file() {
+          # ========== 2. 下载文件 ==========
+          download() {
             local url="$1"
-            local content
-            content=$(curl --silent --show-error --connect-timeout 10 --max-time 20 "$url" 2>&1)
-            echo "$content"
+            curl -sL --connect-timeout 15 "$url" 2>/dev/null
           }
 
-          # ========== 提取URL（纯函数，不动） ==========
-          extract_url_list() {
+          # ========== 3. ✅ 修复：正确提取 .gitmodules 中的所有 url ==========
+          extract_modules() {
             local content="$1"
-            echo "$content" | grep -E '^[ \t]*url' | cut -d'=' -f2 | xargs
+            echo "$content" | awk '/^[[:space:]]*url/ {print $3}'
           }
 
-          # ========== 递归主函数 ==========
-          parse_gitmodules() {
-            local gitmodules_url="$1"
-            log_step "解析：$gitmodules_url"
+          # ========== 主执行逻辑 ==========
+          URL="https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
+          
+          step "开始解析"
+          info "目标：$URL"
 
-            # 异常捕获
-            if ! check_url_connect "$gitmodules_url"; then
-              log_error "【关键原因】GitHub 服务器无法访问该网址（被屏蔽/网络不通）"
-              log_error "不是脚本错，是网络环境问题！"
-              return 1
-            fi
+          # 异常捕获
+          if ! check_url "$URL"; then
+            error "访问失败"
+            exit 1
+          fi
+          info "✅ 连通成功"
 
-            log_info "连通成功"
-            local content=$(download_file "$gitmodules_url")
-            local url_list=$(extract_url_list "$content")
+          # 下载内容
+          content=$(download "$URL")
+          if [ -z "$content" ]; then
+            error "内容为空"
+            exit 1
+          fi
 
-            log_info "提取到的子模块："
-            echo "$url_list"
-          }
+          # 提取子模块
+          step "提取到的所有子模块 URL"
+          extract_modules "$content"
 
-          # 启动
-          log_step "启动"
-          parse_gitmodules "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules"
-          log_step "结束"
+          step "执行完成"
