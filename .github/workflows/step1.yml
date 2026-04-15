@@ -1,4 +1,4 @@
-name: 【纯验证】步骤1 - 获取所有子模块
+name: 只验证步骤1
 on:
   workflow_dispatch:
 
@@ -8,19 +8,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 只验证步骤1
+      - name: 步骤1：获取官方 .gitmodules
         run: |
           set -e
           
-          # 克隆主项目
-          git clone https://gitlab.linphone.org/BC/public/linphone-desktop.git tmp
-          cd tmp
+          # 直接下载官方线上 .gitmodules 文件
+          curl -sSL "https://gitlab.linphone.org/BC/public/linphone-desktop/-/raw/master/.gitmodules" -o .gitmodules.online
           
-          # ==================== 你要的 步骤1 单独验证 ====================
-          echo "::group::📦 步骤1：获取所有子模块信息"
-          echo "----------------------------------------"
-          git submodule init
-          MODULE_LIST=$(git submodule status | awk '{print $2}' | while read m; do echo "submodule.$m.url $(git config -f .gitmodules submodule.$m.url)"; done)
-          echo "✅ 成功读取所有子模块列表"
+          # 读取所有子模块
+          MODULE_LIST=$(git config -f .gitmodules.online --get-regexp '^submodule\..*\.url$')
+          
+          # 输出结果
+          echo "✅ 成功获取所有子模块"
           echo "$MODULE_LIST"
-          echo "::endgroup::"
