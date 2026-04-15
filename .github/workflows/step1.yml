@@ -1,56 +1,43 @@
-name: 递归解析所有子模块【最终完整版】
-on:
-  workflow_dispatch
+name: 递归解析子模块【最终最终版】
+on: workflow_dispatch
 
 jobs:
-  test:
+  parse:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: 递归解析 .gitmodules
+      - name: 开始解析
         run: |
+          #!/bin/bash
           set -e
 
-          # 递归解析函数
-          parse_modules() {
-            local repo_url="$1"
+          parse() {
+            local repo="$1"
             echo "============================================="
-            echo "📦 解析仓库：$repo_url"
+            echo "解析仓库：$repo"
 
-            # 拼接 .gitmodules 下载地址
-            local gitmodules_url="${repo_url%.git}/-/raw/master/.gitmodules"
-            
-            # 下载文件
-            local content=$(curl -s -f --connect-timeout 3 --max-time 5 "$gitmodules_url" 2>/dev/null || true)
+            # 拼接 .gitmodules 地址
+            local gm_url="${repo%.git}/-/raw/master/.gitmodules"
+            local content=$(curl -Ssf --connect-timeout 2 --max-time 3 "$gm_url" 2>/dev/null || true)
+
             if [ -z "$content" ]; then
-              echo "✅ 无 .gitmodules 文件，到达最底层"
+              echo "无 .gitmodules"
               return
             fi
 
-            echo "$content" > .tmp_gitmodules
+            # 提取所有子模块 URL
+            echo "$content" | grep -E '^[ \t]*url[ \t]*=' | while IFS='=' read -r k v; do
+              local url=$(echo "$v" | xargs)
 
-            # 读取所有 url 配置
-            grep -E '^[ \t]*url[ \t]*=' .tmp_gitmodules | while IFS='=' read -r key val; do
-              local sub_url=$(echo "$val" | xargs)
-
-              # ===================== 【最终正则】=====================
-              # 规则：
-              # 1. 协议必须【字母开头】，后面可跟字母/数字/+/-/.
-              # 2. 必须出现 ://
-              # 3. 后面必须是 字母/数字 + . （域名格式）
-              if [[ ! $sub_url =~ ^[a-zA-Z][a-zA-Z0-9+.-]*://[a-zA-Z0-9]+\. ]]; then
-                echo "⚠️  跳过无效子模块地址：$sub_url"
+              # 协议正则：严格标准格式
+              if [[ ! "$url" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*://[a-zA-Z0-9]+\. ]]; then
+                echo "跳过：$url"
                 continue
               fi
-              # ======================================================
 
-              echo "🔗 有效子模块：$sub_url"
-              
-              # 递归继续解析
-              parse_modules "$sub_url"
+              echo "有效子模块：$url"
+              parse "$url"
             done
           }
 
-          # 从根项目开始执行
-          parse_modules "https://gitlab.linphone.org/BC/public/linphone-desktop.git"
+          # 启动
+          parse "https://gitlab.linphone.org/BC/public/linphone-desktop.git"
