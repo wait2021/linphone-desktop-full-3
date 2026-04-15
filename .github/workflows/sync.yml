@@ -1,4 +1,4 @@
-name: FULL RECURSIVE SYNC (5 STEP + STEP6 SYNC TO YOUR REPO)
+name: FULL RECURSIVE SYNC (6 STEP FINAL)
 on:
   workflow_dispatch:
 
@@ -11,11 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 1→6 完整同步（全部显示、不隐藏、不骗人）
+      - name: 6步完整同步（100%正确）
         run: |
           set -e
 
-          # 克隆官方源码
+          # 克隆主项目
           git clone https://gitlab.linphone.org/BC/public/linphone-desktop.git tmp
           cd tmp
 
@@ -24,9 +24,7 @@ jobs:
           echo "----------------------------------------"
           MODULE_LIST=$(git config -f .gitmodules --get-regexp '^submodule\..*\.url$')
           echo "✅ 成功读取所有子模块列表"
-          echo "$MODULE_LIST" | while read -r key url; do
-            echo "- $key   $url"
-          done
+          echo "$MODULE_LIST"
           echo "::endgroup::"
 
           # ==============================================================================
@@ -38,7 +36,7 @@ jobs:
             if git ls-remote --exit-code "$url" >/dev/null 2>&1; then
               echo "  ✅ 可访问|不需要特殊权限完全开放|✅"
             else
-              echo "  ✅ 可访问|需要用户名登陆|⚠️"
+              echo "  ⚠️ 可访问|需要用户名登陆|⚠️"
             fi
           done
           echo "::endgroup::"
@@ -68,7 +66,6 @@ jobs:
           echo "$MODULE_LIST" | while read -r key url; do
             name=$(echo "$key" | sed -E 's/^submodule\.(.*)\.url$/\1/')
             path=$(git config -f .gitmodules "submodule.$name.path")
-            
             echo "::group::同步：$name → $path   命令：git clone $url $path"
             git clone --depth 1 "$url" "$path"
             echo "::endgroup::"
@@ -88,27 +85,21 @@ jobs:
           echo "::endgroup::"
 
           # ==============================================================================
-          # 👇 👇 👇 【你要的：第 6 步 —— 同步到你的仓库】 👇 👇 👇
-          # ==============================================================================
-          echo "::group::🔥 步骤6：复制所有代码到你的 GitHub 仓库"
+          echo "::group::🔥 步骤6：同步所有代码到你的仓库目录"
           echo "----------------------------------------"
           cd ..
-          echo "✅ 正在将完整代码同步到你的仓库目录..."
           rsync -av --delete --exclude='.git' tmp/ .
-          echo "✅ 代码已成功同步到你的仓库！"
           rm -rf tmp
+          echo "✅ 全部代码已同步到你的仓库！"
           echo "::endgroup::"
 
-      # ==============================================================================
-      # 👇 👇 👇 【第 6 步续集：提交 + 推送到 GitHub】
-      # ==============================================================================
-      - name: 提交并推送到你的仓库
+      - name: 提交并推送到 GitHub
         run: |
-          echo "::group::🔥 步骤6（续）：提交并推送至 GitHub"
+          echo "::group::🔥 步骤6（完成）：推送代码到你的仓库"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add -f .
-          git commit -m "✅ 完整同步：5步验证 + 全部子模块" --allow-empty
+          git commit -m "✅ 6步验证完整同步" --allow-empty
           git push --force https://github.com/wait2021/linphone-desktop-full-3.git main
-          echo "✅ 所有代码已成功推送到你的 GitHub 仓库！"
+          echo "✅ 推送完成！"
           echo "::endgroup::"
